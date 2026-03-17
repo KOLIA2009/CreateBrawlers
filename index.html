@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brawler Builder Persistent</title>
+    <style>
+        :root {
+            --bg: #0b0e11;
+            --card-bg: #1c1f24;
+            --accent: #007bff;
+            --text: #ffffff;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            padding-bottom: 120px;
+            user-select: none;
+        }
+
+        #main-container {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .rarity-group {
+            border-radius: 12px;
+            padding: 10px;
+        }
+
+        .rarity-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .color-circle {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid rgba(255,255,255,0.2);
+            position: relative;
+        }
+
+        .color-picker-input {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+
+        .rarity-title {
+            font-size: 1.4rem;
+            font-weight: 800;
+            outline: none;
+            text-transform: uppercase;
+            /* Убираем любые стандартные подчеркивания */
+            text-decoration: none;
+        }
+
+        .character-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            min-height: 100px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 15px;
+            padding: 15px;
+            border: 2px dashed transparent;
+            transition: 0.3s;
+        }
+
+        .character-grid.drag-over {
+            background: rgba(255,255,255,0.1);
+            border-color: var(--accent);
+        }
+
+        .char-card {
+            width: 90px;
+            position: relative;
+            cursor: grab;
+        }
+
+        .char-img-box {
+            width: 90px;
+            height: 90px;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #333;
+        }
+
+        .char-img-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .char-name {
+            font-size: 11px;
+            text-align: center;
+            padding: 5px 0;
+            background: #1c1f24;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 4px solid var(--accent);
+            border-radius: 0 0 5px 5px;
+        }
+
+        .delete-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 22px;
+            height: 22px;
+            cursor: pointer;
+            font-size: 12px;
+            display: none;
+            z-index: 10;
+        }
+
+        .char-card:hover .delete-btn { display: block; }
+
+        .fab-wrapper {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 15px;
+            z-index: 100;
+        }
+
+        .fab-main {
+            width: 65px;
+            height: 65px;
+            background: var(--accent);
+            border-radius: 50%;
+            border: none;
+            color: white;
+            font-size: 35px;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.6);
+        }
+
+        .fab-menu {
+            display: none;
+            background: #252930;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .fab-menu.show { display: flex; flex-direction: column; gap: 8px; }
+
+        .fab-menu button {
+            background: #3a3f47;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        #photo-input { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="main-container">
+    </div>
+
+<div class="fab-wrapper">
+    <div class="fab-menu" id="fabMenu">
+        <button onclick="addRarity()">+ Новая редкость</button>
+        <button onclick="document.getElementById('photo-input').click()">+ Новый персонаж</button>
+        <button onclick="clearAllData()" style="background:#ff4d4d;">Очистить всё</button>
+    </div>
+    <button class="fab-main" onclick="toggleMenu()">+</button>
+</div>
+
+<input type="file" id="photo-input" accept="image/*" onchange="createCharacter(this)">
+
+<script>
+    let draggedElement = null;
+
+    // --- ЛОГИКА СОХРАНЕНИЯ ---
+    function saveData() {
+        const data = [];
+        document.querySelectorAll('.rarity-group').forEach(group => {
+            const rarity = {
+                title: group.querySelector('.rarity-title').innerText,
+                color: group.querySelector('.color-picker-input').value,
+                characters: []
+            };
+            group.querySelectorAll('.char-card').forEach(card => {
+                rarity.characters.push({
+                    name: card.querySelector('.char-name').innerText,
+                    img: card.querySelector('img').src
+                });
+            });
+            data.push(rarity);
+        });
+        localStorage.setItem('brawlBuilderData', JSON.stringify(data));
+    }
+
+    function loadData() {
+        const rawData = localStorage.getItem('brawlBuilderData');
+        if (!rawData) {
+            // Если данных нет, создаем дефолтную редкость
+            createRarityElement("Starting Brawler", "#4facff", []);
+            return;
+        }
+        const data = JSON.parse(rawData);
+        data.forEach(item => {
+            createRarityElement(item.title, item.color, item.characters);
+        });
+    }
+
+    // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+    function toggleMenu() { document.getElementById('fabMenu').classList.toggle('show'); }
+
+    function createRarityElement(title, color, characters) {
+        const container = document.getElementById('main-container');
+        const section = document.createElement('div');
+        section.className = 'rarity-group';
+        section.innerHTML = `
+            <div class="rarity-header">
+                <div class="color-circle" style="background-color: ${color};">
+                    <input type="color" class="color-picker-input" value="${color}" oninput="updateRarityColor(this)">
+                </div>
+                <div class="rarity-title" contenteditable="true" spellcheck="false" oninput="saveData()" style="color: ${color};">${title}</div>
+            </div>
+            <div class="character-grid" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"></div>
+        `;
+        container.appendChild(section);
+        
+        const grid = section.querySelector('.character-grid');
+        characters.forEach(c => {
+            grid.appendChild(createCharacterElement(c.name, c.img, color));
+        });
+    }
+
+    function createCharacterElement(name, imgSrc, color) {
+        const charCard = document.createElement('div');
+        charCard.className = 'char-card';
+        charCard.draggable = true;
+        charCard.id = "char-" + Math.random().toString(36).substr(2, 9);
+        charCard.ondragstart = handleDragStart;
+        charCard.ondragend = () => { draggedElement.style.opacity = "1"; saveData(); };
+
+        charCard.innerHTML = `
+            <button class="delete-btn" onclick="this.parentElement.remove(); saveData();">×</button>
+            <div class="char-img-box"><img src="${imgSrc}" alt=""></div>
+            <div class="char-name" style="border-bottom-color: ${color}">${name}</div>
+        `;
+        return charCard;
+    }
+
+    // --- ОБРАБОТЧИКИ СОБЫТИЙ ---
+    function updateRarityColor(input) {
+        const color = input.value;
+        const group = input.closest('.rarity-group');
+        input.parentElement.style.backgroundColor = color;
+        group.querySelector('.rarity-title').style.color = color;
+        group.querySelectorAll('.char-name').forEach(n => n.style.borderBottomColor = color);
+        saveData();
+    }
+
+    function handleDragStart(e) {
+        draggedElement = e.currentTarget;
+        e.dataTransfer.setData("text/plain", e.currentTarget.id);
+        setTimeout(() => e.currentTarget.style.opacity = "0.5", 0);
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault();
+        const grid = e.currentTarget.closest('.character-grid');
+        if (grid) grid.classList.add('drag-over');
+    }
+
+    function handleDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+
+    function handleDrop(e) {
+        e.preventDefault();
+        const grid = e.currentTarget.closest('.character-grid');
+        grid.classList.remove('drag-over');
+        if (draggedElement && grid) {
+            grid.appendChild(draggedElement);
+            const newColor = grid.closest('.rarity-group').querySelector('.color-picker-input').value;
+            draggedElement.querySelector('.char-name').style.borderBottomColor = newColor;
+            saveData();
+        }
+    }
+
+    function addRarity() {
+        const name = prompt("Назовите редкость:", "НОВАЯ РЕДКОСТЬ");
+        if (name) {
+            createRarityElement(name, "#3fb950", []);
+            saveData();
+        }
+        toggleMenu();
+    }
+
+    function createCharacter(input) {
+        if (!input.files || !input.files[0]) return;
+        const name = prompt("Имя персонажа:", "БРОУЛЕР");
+        if (!name) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const firstGrid = document.querySelector('.character-grid');
+            const color = firstGrid.closest('.rarity-group').querySelector('.color-picker-input').value;
+            const newChar = createCharacterElement(name, e.target.result, color);
+            firstGrid.appendChild(newChar);
+            saveData();
+        }
+        reader.readAsDataURL(input.files[0]);
+        toggleMenu();
+        input.value = "";
+    }
+
+    function clearAllData() {
+        if(confirm("Вы уверены, что хотите всё удалить?")) {
+            localStorage.removeItem('brawlBuilderData');
+            location.reload();
+        }
+    }
+
+    // Загрузка при старте
+    document.addEventListener('DOMContentLoaded', loadData);
+</script>
+
+</body>
+</html>
